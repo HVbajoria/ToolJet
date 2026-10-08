@@ -1656,8 +1656,11 @@ export class AppsUtilService implements IAppsUtilService {
   async checkModuleInUseByApps(moduleApp: App, manager: EntityManager): Promise<void> {
     if (!moduleApp?.co_relation_id) return;
     try {
-      // co_relation_id = stable module identity across branches. Self-ref excluded so a
-      // module can reference itself without blocking its own deletion.
+      // co_relation_id = stable module identity across branches AND git-cloned workspaces.
+      // Scope the lookup to this module's own workspace: the same co_relation_id exists in
+      // every workspace the module was git-synced into, so without an organization filter
+      // this guard wrongly reports consumers from other workspaces (and blocks the delete).
+      // Self-ref excluded so a module can reference itself without blocking its own deletion.
       const consumingApps = await manager
         .createQueryBuilder(Component, 'component')
         .innerJoin('component.page', 'page')
@@ -1668,6 +1671,7 @@ export class AppsUtilService implements IAppsUtilService {
         .andWhere(`(component.properties::jsonb -> 'moduleAppId' ->> 'value') = :coRel`, {
           coRel: moduleApp.co_relation_id,
         })
+        .andWhere('app.organizationId = :orgId', { orgId: moduleApp.organizationId })
         .andWhere('app.id != :selfId', { selfId: moduleApp.id })
         .getRawMany();
 
